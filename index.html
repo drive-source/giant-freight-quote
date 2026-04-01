@@ -1110,7 +1110,8 @@ let C = {
   expressDays: 14,    // bookings within this many days = express rate
   futureDisc: 10,     // % discount for bookings beyond expressDays window
   czones:'EC,WC,SW1,SE1,E1,N1',
-  // ULEZ covers all of Greater London — broader than the congestion charge zone
+  // ULEZ covers all 32 Greater London boroughs (expanded Aug 2023)
+  // Only applies to vehicles up to 3.5T — heavier vehicles fall under LEZ instead
   ulezzones:'E,EC,N,NW,SE,SW,W,WC,BR,CR,DA,EN,HA,IG,KT,RM,SM,TW,UB,WD',
   zm:{lon:1.35,bham:1.25,man:1.20,bris:1.15,edin:1.15,lds:1.15},
   // Custom postcode zone multipliers (e.g. moors, highlands, islands)
@@ -1561,7 +1562,9 @@ async function runCalc() {
     if (pals>0) lines.push({lbl:`Pallet surcharge × ${pals}`,amt:pals*C.ppal});
   }
   if (isCong(fp)||isCong(tp)) lines.push({lbl:'London Congestion Charge',amt:C.cong});
-  if (isUlez(fp)||isUlez(tp)) lines.push({lbl:'ULEZ Charge',amt:C.ulez});
+  // ULEZ applies to vehicles up to 3.5T only — heavier vehicles fall under LEZ (separate charge)
+  if ((isUlez(fp)||isUlez(tp)) && veh.maxW <= 2500) lines.push({lbl:'ULEZ Charge (sub-3.5T)',amt:C.ulez});
+  if ((isUlez(fp)||isUlez(tp)) && veh.maxW > 2500)  lines.push({lbl:'LEZ applies — check vehicle compliance',amt:0,note:'Heavy vehicles subject to Low Emission Zone, not ULEZ'});
   if (isDart(fp,tp))           lines.push({lbl:'Dartford Crossing toll',amt:C.dart});
   if (S.tail) {
     if (veh.tailLift) {
@@ -1691,7 +1694,8 @@ async function runCalc() {
         if (pals>0) uLines.push({lbl:`Pallet surcharge × ${pals}`, amt:pals*C.ppal});
       }
       if (isCong(fp)||isCong(tp)) uLines.push({lbl:'London Congestion Charge', amt:C.cong});
-      if (isUlez(fp)||isUlez(tp)) uLines.push({lbl:'ULEZ Charge', amt:C.ulez});
+      if ((isUlez(fp)||isUlez(tp)) && uv.maxW <= 2500) uLines.push({lbl:'ULEZ Charge (sub-3.5T)', amt:C.ulez});
+      if ((isUlez(fp)||isUlez(tp)) && uv.maxW > 2500)  uLines.push({lbl:'LEZ applies — check vehicle compliance', amt:0, note:'Heavy vehicles subject to Low Emission Zone, not ULEZ'});
       if (isDart(fp,tp))           uLines.push({lbl:'Dartford Crossing toll', amt:C.dart});
       if (S.tail && uv.tailLift)   uLines.push({lbl:'Tail-lift surcharge', amt:C.tail});
       if (S.crew) uLines.push({lbl:'Two-person crew', amt:C.crew});
