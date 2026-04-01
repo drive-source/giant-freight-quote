@@ -967,6 +967,19 @@ body {
         <div class="rdist"  id="r-dist">—</div>
         <div class="rveh"   id="r-veh">—</div>
       </div>
+      <!-- VAT toggle -->
+      <div style="display:flex;justify-content:flex-end;margin-bottom:0.75rem;">
+        <div style="display:flex;align-items:center;gap:0;border:1.5px solid var(--border);border-radius:6px;overflow:hidden;font-size:12px;font-weight:700;font-family:'Barlow',sans-serif;">
+          <button id="vat-inc-btn" onclick="setVatMode('inc')"
+            style="padding:6px 14px;border:none;cursor:pointer;background:var(--gf-dark);color:#fff;text-transform:uppercase;letter-spacing:0.5px;">
+            Inc. VAT
+          </button>
+          <button id="vat-exc-btn" onclick="setVatMode('exc')"
+            style="padding:6px 14px;border:none;cursor:pointer;background:var(--surface);color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;">
+            Ex. VAT
+          </button>
+        </div>
+      </div>
       <div class="qgrid" id="q-grid"></div>
       <div class="inote" id="inote"></div>
     </div>
@@ -1649,6 +1662,8 @@ async function runCalc() {
   }
   whyEl.textContent = whyStr;
 
+  // Reset VAT mode to inc for each new quote
+  _vatMode = 'inc';
   const grid=$_('q-grid'); grid.innerHTML='';
   const mc=mkQ(true,veh,gross,miles);
 
@@ -1747,11 +1762,14 @@ async function runCalc() {
 function mkQ(best,veh,gross,miles) {
   const d=document.createElement('div');
   d.className='qcard'+(best?' best':' alt');
+  const vatRate = C.vat / 100;
+  const displayPrice = _vatMode === 'inc' ? gross : gross / (1 + vatRate);
+  const vatLabel     = _vatMode === 'inc' ? 'inc. VAT' : 'ex. VAT';
   d.innerHTML=`
     ${best?'<div class="bestpill">Best Match</div>':''}
     <div class="qrow">
       <div class="qname">${veh.ico} ${veh.lbl}</div>
-      <div class="qprice">£${gross.toFixed(2)}<small>inc. VAT</small></div>
+      <div class="qprice" data-gross="${gross.toFixed(2)}">£${displayPrice.toFixed(2)}<small>${vatLabel}</small></div>
     </div>
     <div class="qtags">
       <span class="qtag">${miles} miles</span>
@@ -1764,12 +1782,55 @@ function mkQ(best,veh,gross,miles) {
 }
 
 function showBK(lines) {
+  // Store lines for VAT toggle re-render
+  showBK._lines = lines;
   $_('bk-card').style.display='';
-  $_('bk-tbl').innerHTML=lines.map(l=>`
-    <tr class="${l.sep?'sep':''} ${l.big?'big':''} ${l.neg?'neg':''}">
+  const vatRate = C.vat / 100;
+  $_('bk-tbl').innerHTML = lines.map(l => {
+    // In ex-VAT mode, strip VAT from all amounts except the VAT row itself
+    let amt = l.amt;
+    if (_vatMode === 'exc' && !l.sep && !l.big && !l.neg && amt > 0) {
+      // Non-total rows stay as-is (already ex-VAT)
+    }
+    if (_vatMode === 'exc' && l.sep && l.lbl.startsWith('VAT')) return ''; // hide VAT row
+    if (_vatMode === 'exc' && l.big) {
+      // Show ex-VAT total
+      const exVat = amt / (1 + vatRate);
+      return `<tr class="sep big">
+        <td>${l.lbl.replace('(inc. VAT)','(ex. VAT)')}</td>
+        <td>£${exVat.toFixed(2)}</td>
+      </tr>`;
+    }
+    return `<tr class="${l.sep?'sep':''} ${l.big?'big':''} ${l.neg?'neg':''}">
       <td>${l.lbl}${l.note?`<em style="font-size:11px;color:var(--text3);font-weight:400;margin-left:6px;">${l.note}</em>`:''}</td>
-      <td>£${Math.abs(l.amt).toFixed(2)}${l.neg?' ↓':''}</td>
-    </tr>`).join('');
+      <td>£${Math.abs(amt).toFixed(2)}${l.neg?' ↓':''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function setVatMode(mode) {
+  _vatMode = mode;
+  // Update toggle button styles
+  const incBtn = $_('vat-inc-btn');
+  const excBtn = $_('vat-exc-btn');
+  if (incBtn && excBtn) {
+    incBtn.style.background = mode==='inc' ? 'var(--gf-dark)' : 'var(--surface)';
+    incBtn.style.color      = mode==='inc' ? '#fff' : 'var(--text3)';
+    excBtn.style.background = mode==='exc' ? 'var(--gf-dark)' : 'var(--surface)';
+    excBtn.style.color      = mode==='exc' ? '#fff' : 'var(--text3)';
+  }
+  // Update all quote card prices
+  const vatRate = C.vat / 100;
+  document.querySelectorAll('.qcard').forEach(card => {
+    const priceEl = card.querySelector('.qprice');
+    if (!priceEl || !priceEl.dataset.gross) return;
+    const gross = parseFloat(priceEl.dataset.gross);
+    const display = mode === 'inc' ? gross : gross / (1 + vatRate);
+    const label   = mode === 'inc' ? 'inc. VAT' : 'ex. VAT';
+    priceEl.innerHTML = `£${display.toFixed(2)}<small>${label}</small>`;
+  });
+  // Re-render breakdown if visible
+  if (showBK._lines) showBK(showBK._lines);
 }
 
 /* ═══════════════════════════════
@@ -1931,6 +1992,8 @@ function renderDateSummary(fp, tp) {
 ═══════════════════════════════ */
 // Store quote state for the booking email
 let _lastQuote = {};
+let _vatMode = 'inc'; // 'inc' = including VAT, 'exc' = excluding VAT
+let _lastCards = []; // stores {el, grossInc, netExc} for each card
 
 function reqBook() {
   // Capture current quote details
