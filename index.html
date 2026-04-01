@@ -1782,28 +1782,26 @@ function mkQ(best,veh,gross,miles) {
 }
 
 function showBK(lines) {
-  // Store lines for VAT toggle re-render
   showBK._lines = lines;
   $_('bk-card').style.display='';
   const vatRate = C.vat / 100;
   $_('bk-tbl').innerHTML = lines.map(l => {
-    // In ex-VAT mode, strip VAT from all amounts except the VAT row itself
-    let amt = l.amt;
-    if (_vatMode === 'exc' && !l.sep && !l.big && !l.neg && amt > 0) {
-      // Non-total rows stay as-is (already ex-VAT)
+    if (_vatMode === 'exc') {
+      // Hide the VAT row
+      if (l.sep && l.lbl.startsWith('VAT')) return '';
+      // Show ex-VAT total (divide gross total by 1+VAT)
+      if (l.big) {
+        const exVat = l.amt / (1 + vatRate);
+        return `<tr class="sep big">
+          <td>${l.lbl.replace('(inc. VAT)','(ex. VAT)')}</td>
+          <td>£${exVat.toFixed(2)}</td>
+        </tr>`;
+      }
     }
-    if (_vatMode === 'exc' && l.sep && l.lbl.startsWith('VAT')) return ''; // hide VAT row
-    if (_vatMode === 'exc' && l.big) {
-      // Show ex-VAT total
-      const exVat = amt / (1 + vatRate);
-      return `<tr class="sep big">
-        <td>${l.lbl.replace('(inc. VAT)','(ex. VAT)')}</td>
-        <td>£${exVat.toFixed(2)}</td>
-      </tr>`;
-    }
+    // All other rows (line items) are already ex-VAT — show as-is in both modes
     return `<tr class="${l.sep?'sep':''} ${l.big?'big':''} ${l.neg?'neg':''}">
       <td>${l.lbl}${l.note?`<em style="font-size:11px;color:var(--text3);font-weight:400;margin-left:6px;">${l.note}</em>`:''}</td>
-      <td>£${Math.abs(amt).toFixed(2)}${l.neg?' ↓':''}</td>
+      <td>£${Math.abs(l.amt).toFixed(2)}${l.neg?' ↓':''}</td>
     </tr>`;
   }).join('');
 }
@@ -2334,6 +2332,16 @@ function saveAdmin() {
 
 function loadSavedSettings() {
   try {
+    // Version check — if code version changed, clear stale localStorage
+    const CODE_VERSION = '2.1'; // bump this whenever zone/config defaults change
+    const savedVersion = localStorage.getItem('gf_version');
+    if (savedVersion !== CODE_VERSION) {
+      localStorage.removeItem('gf_vehicles');
+      localStorage.removeItem('gf_config');
+      localStorage.setItem('gf_version', CODE_VERSION);
+      return; // use code defaults
+    }
+
     const sv = localStorage.getItem('gf_vehicles');
     const sc = localStorage.getItem('gf_config');
     if (sv) {
@@ -2342,7 +2350,6 @@ function loadSavedSettings() {
         const v = V.find(x => x.id === s.id);
         if (v) {
           Object.assign(v, s);
-          // Ensure boolean flags are properly restored
           if (typeof s.active   !== 'undefined') v.active   = s.active;
           if (typeof s.tailLift !== 'undefined') v.tailLift = s.tailLift;
         }
@@ -2350,9 +2357,13 @@ function loadSavedSettings() {
     }
     if (sc) {
       const saved = JSON.parse(sc);
-      Object.assign(C, saved);
-      if (saved.zm)          Object.assign(C.zm, saved.zm);
+      // Restore pricing values but NOT zone postcodes — always use code defaults for those
+      const keysToRestore = ['cong','dart','ulez','tail','crew','fork','ppal',
+                             'flex','cold','h48','expr','vat','expressDays','futureDisc'];
+      keysToRestore.forEach(k => { if (typeof saved[k] !== 'undefined') C[k] = saved[k]; });
+      if (saved.zm) Object.assign(C.zm, saved.zm);
       if (saved.customZones) C.customZones = saved.customZones;
+      // czones and ulezzones intentionally NOT restored — always use code defaults
     }
   } catch(e) { console.warn('Could not load saved settings:', e); }
 }
